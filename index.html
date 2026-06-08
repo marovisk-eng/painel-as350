@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THP Esquilo AS350 - Painel de Emergência</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <style>
+        .gauge-container {
+            position: relative; width: 100px; height: 100px; border-radius: 50%;
+            background-color: #1e293b; border: 4px solid #0f172a;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
+        }
+        .gauge-marks { position: absolute; inset: 6px; border-radius: 50%; border: 6px solid transparent; }
+        .marks-nr { border-top-color: #22c55e; border-right-color: #eab308; border-bottom-color: #ef4444; transform: rotate(-45deg); }
+        .marks-trq { border-top-color: #22c55e; border-right-color: #ef4444; transform: rotate(-20deg); }
+        .marks-t4 { border-top-color: #22c55e; border-right-color: #eab308; border-bottom-color: #ef4444; transform: rotate(-45deg); }
+        
+        .needle {
+            position: absolute; width: 3px; height: 45px; background-color: #f8fafc;
+            bottom: 50%; transform-origin: bottom center;
+            transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 2px; z-index: 10;
+        }
+        .needle-dual { background-color: #ef4444; width: 2px; z-index: 9; }
+        .needle-center { position: absolute; width: 14px; height: 14px; background-color: #475569; border-radius: 50%; z-index: 20; border: 2px solid #1e293b; }
+        
+        .cwp-btn { box-shadow: inset 0 2px 5px rgba(255,255,255,0.2), 0 2px 5px rgba(0,0,0,0.5); transition: all 0.1s; }
+        .cwp-btn:active { box-shadow: inset 0 1px 2px rgba(0,0,0,0.5); transform: translateY(2px); }
+        .selected-btn { outline: 3px solid #60a5fa; outline-offset: 2px; box-shadow: 0 0 15px rgba(96, 165, 250, 0.5); }
+        .cwp-empty { background-color: #0f172a; border: 1px solid #1e293b; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); border-radius: 4px; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Estilo dos Botões Inline circulares (?) e (R) estilo AW119 */
+        .icon-badge {
+            width: 24px; height: 24px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: bold; cursor: pointer; color: white;
+            transition: transform 0.1s, background-color 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            user-select: none;
+        }
+        .icon-badge:active { transform: scale(0.9); box-shadow: none; }
+        .icon-info { background-color: #2563eb; } /* Azul */
+        .icon-info:hover { background-color: #1d4ed8; }
+        .icon-red { background-color: #0f172a; } /* Cinza Escuro/Preto para diferenciar do Azul e combinar com o Header da Redundância */
+        .icon-red:hover { background-color: #334155; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 font-sans min-h-screen p-4 md:p-6 relative">
+
+    <!-- OVERLAY MODAL -->
+    <div id="info-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
+        <!-- O cabeçalho mudará de cor dinamicamente via JS -->
+        <div class="bg-white border border-slate-300 rounded-lg max-w-md w-full shadow-2xl overflow-hidden transform scale-95 transition-transform duration-200" id="modal-content-box">
+            <div id="modal-header" class="p-3 flex justify-between items-center text-white">
+                <h3 id="modal-title" class="text-sm md:text-base font-bold tracking-wide flex items-center gap-2 m-0 uppercase"></h3>
+                <button onclick="closeModal()" class="text-white/80 hover:text-white"><i class="ph ph-x text-xl"></i></button>
+            </div>
+            <div class="p-5 text-slate-800 text-[15px] leading-relaxed bg-slate-50 font-medium border-b border-slate-200" id="modal-text"></div>
+            <div class="p-3 bg-slate-100 text-right">
+                <button onclick="closeModal()" class="bg-slate-700 hover:bg-slate-800 text-white px-5 py-1.5 rounded text-sm font-bold transition-colors shadow">FECHAR</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto">
+        <!-- HEADER -->
+        <div class="flex flex-col md:flex-row justify-between items-center bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl gap-6 mb-6">
+            <div class="flex items-center gap-4">
+                <div class="bg-blue-600 p-4 rounded-full shadow-lg border-2 border-blue-400">
+                    <i class="ph ph-helicopter text-3xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-black text-white tracking-wider">THP ESQUILO AS350</h1>
+                    <p class="text-blue-400 font-bold tracking-widest text-sm">TREINADOR DE PROCEDIMENTOS DE EMERGÊNCIA</p>
+                </div>
+            </div>
+
+            <div class="flex flex-col items-end">
+                <label class="text-xs text-slate-400 uppercase tracking-widest mb-2 font-bold">Versão da Aeronave</label>
+                <div class="flex bg-slate-900 p-1 rounded-lg border border-slate-700">
+                    <button id="btn-v-b2" onclick="setVersion('B_BA_B2')" class="px-4 py-2 text-sm font-bold rounded-md bg-blue-600 text-white transition-colors">
+                        B/BA/B2 (Arriel 1)
+                    </button>
+                    <button id="btn-v-b3" onclick="setVersion('B3_B3e')" class="px-4 py-2 text-sm font-bold rounded-md text-slate-400 hover:text-white transition-colors">
+                        B3/B3e (FADEC)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- COLUNA ESQUERDA: INSTRUMENTOS E PAINEL CWP -->
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                
+                <!-- PAINEL DE INSTRUMENTOS -->
+                <div class="bg-slate-800 p-4 rounded-xl border-4 border-slate-700 shadow-2xl">
+                    <h2 class="text-center text-slate-400 font-bold tracking-widest mb-4 text-sm border-b border-slate-700 pb-2">
+                        INSTRUMENTOS DO MOTOR
+                    </h2>
+                    <div class="flex justify-around items-end bg-slate-900 p-4 rounded-lg border border-slate-950 inset-shadow">
+                        
+                        <div class="flex flex-col items-center">
+                            <div class="text-[10px] text-slate-300 font-bold mb-1 text-center">NR / Nf (RPM)</div>
+                            <div class="flex justify-center gap-1.5 mb-2">
+                                <span class="icon-badge icon-info w-5 h-5 text-[10px]" onclick="openGaugeModal('nr', 'info', 'NR / Nf (RPM)')">?</span> 
+                                <span class="icon-badge icon-red w-5 h-5 text-[10px]" onclick="openGaugeModal('nr', 'red', 'NR / Nf (RPM)')">R</span>
+                            </div>
+                            <div class="gauge-container">
+                                <div class="gauge-marks marks-nr"></div>
+                                <div id="needle-nr" class="needle" style="transform: rotate(20deg);"></div>
+                                <div id="needle-nf" class="needle needle-dual" style="transform: rotate(20deg);"></div>
+                                <div class="needle-center"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center">
+                            <div class="text-[10px] text-slate-300 font-bold mb-1 text-center">TRQ (Torque %)</div>
+                            <div class="flex justify-center gap-1.5 mb-2">
+                                <span class="icon-badge icon-info w-5 h-5 text-[10px]" onclick="openGaugeModal('trq', 'info', 'TORQUE (TRQ)')">?</span> 
+                                <span class="icon-badge icon-red w-5 h-5 text-[10px]" onclick="openGaugeModal('trq', 'red', 'TORQUE (TRQ)')">R</span>
+                            </div>
+                            <div class="gauge-container">
+                                <div class="gauge-marks marks-trq"></div>
+                                <div id="needle-trq" class="needle" style="transform: rotate(10deg);"></div>
+                                <div class="needle-center"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center">
+                            <div class="text-[10px] text-slate-300 font-bold mb-1 text-center">T4 (Temp °C)</div>
+                            <div class="flex justify-center gap-1.5 mb-2">
+                                <span class="icon-badge icon-info w-5 h-5 text-[10px]" onclick="openGaugeModal('t4', 'info', 'TEMPERATURA (T4)')">?</span> 
+                                <span class="icon-badge icon-red w-5 h-5 text-[10px]" onclick="openGaugeModal('t4', 'red', 'TEMPERATURA (T4)')">R</span>
+                            </div>
+                            <div class="gauge-container">
+                                <div class="gauge-marks marks-t4"></div>
+                                <div id="needle-t4" class="needle" style="transform: rotate(0deg);"></div>
+                                <div class="needle-center"></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- PAINEL DE AVISOS (CWP) -->
+                <div class="bg-slate-800 p-6 rounded-xl border-4 border-slate-700 shadow-2xl relative">
+                    <div class="absolute top-2 right-2 text-slate-500"><i class="ph ph-screencast text-xl"></i></div>
+                    <h2 class="text-center text-slate-400 font-bold tracking-widest mb-4 border-b border-slate-700 pb-2 text-sm">
+                        CENTRAL WARNING PANEL (CWP)
+                    </h2>
+                    
+                    <!-- Grid Exato do Esquilo: 3 Colunas x 6 Linhas -->
+                    <div id="cwp-grid" class="grid grid-cols-3 gap-[6px] bg-slate-950 p-3 rounded-lg border-2 border-slate-900 shadow-inner min-h-[300px]">
+                        <!-- Renderizado via JS -->
+                    </div>
+                    
+                    <button class="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs p-3 rounded border border-slate-500 transition-colors shadow-md" onclick="selectEmergency('ENG_FAIL')">
+                        <i class="ph ph-warning-circle mr-1"></i> SIMULAR PANE SEM LUZ: ENG FAIL (AUTORROTAÇÃO)
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- COLUNA DIREITA: CHECKLIST -->
+            <div class="lg:col-span-7">
+                <div class="bg-slate-100 text-slate-900 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-300 h-full min-h-[600px] max-h-[85vh]">
+                    <div id="procedure-content" class="flex-1 flex flex-col h-full overflow-hidden bg-slate-100">
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 bg-slate-50">
+                            <i class="ph ph-list-dashes text-7xl mb-4 opacity-20"></i>
+                            <h3 class="text-xl font-bold mb-2">Painel de Procedimentos</h3>
+                            <p>Selecione uma luz de aviso no CWP para carregar o checklist correspondente.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- DADOS DOS INSTRUMENTOS ---
+        const gaugeData = {
+            nr: {
+                info: "Indica a velocidade do Rotor Principal (NR) e da Turbina Livre (Nf). Em voo normal tracionado, os ponteiros ficam sobrepostos (agrupados).",
+                red: "Se o instrumento falhar, a redundância imediata é o alarme sonoro (HORN) que soa se o NR cair abaixo de 360 RPM ou exceder 410 RPM."
+            },
+            trq: {
+                info: "Representa a potência entregue pelo motor à transmissão. É o instrumento primário para respeitar os limites operacionais de tração da aeronave.",
+                red: "Se o torquímetro falhar, passe a monitorar rigorosamente os limites de Ng (Gerador de Gás). Atingir o limite de Ng antes do torque indica motor degradado ou alta altitude densidade."
+            },
+            t4: {
+                info: "Temperatura dos gases de escape do motor. Extremamente crítica durante a partida para evitar um 'Hot Start' (máx 845°C/865°C dependendo da versão).",
+                red: "Se o T4 apresentar picos anormais, cruze a informação com o Torque e Ng. Se eles caírem enquanto o T4 sobe, suspeite de um estol de compressor (surging)."
+            }
+        };
+
+        // --- BANCO DE DADOS DE EMERGÊNCIAS (CWP) ---
+        const emergencyData = {
+            ENG_FIRE: { label: "ENG FIRE", type: "warning", pos: 0, title: "Fogo no Motor",
+                instruments: { nr: 20, nf: -60, trq: -60, t4: 80 }, 
+                immediate: [
+                    { text: "Coletivo - REDUZIR", info: "Abaixar o passo coletivo inicia a autorrotação e evita a perda crítica de NR enquanto se lida com o fogo.", red: "Manter a aeronave estabilizada visualmente no horizonte. O uso do pedal será necessário." },
+                    { text: "Válvula de Corte de Combustível - FECHAR", info: "Corta fisicamente o fluxo de querosene para o motor, cessando a fonte que alimenta o incêndio.", red: "Se a alavanca travar, assegure-se de fechar imediatamente a seletora/manete do motor e a Booster Pump." },
+                    { text: "Seletor do Motor - OFF", info: "Interrompe o funcionamento mecânico do motor.", red: "No B3/B3e, o sistema FADEC fará o corte ao comandar a seletora para OFF." }
+                ],
+                secondary: [
+                    { text: "Bomba de Reforço (Booster Pump) - OFF", info: "Evita que combustível sob pressão continue sendo injetado nas linhas possivelmente rompidas.", red: "Confirme visualmente o disjuntor ou a chave no painel de teto." },
+                    { text: "Pouso em Autorrotação - EXECUTAR", info: "Pouse imediatamente, independente do terreno, se a luz continuar acesa e houver indicação visual de fogo.", red: "Transmita MAYDAY na frequência em uso caso o tempo permita, mas lembre-se: AVIATE em primeiro lugar." }
+                ]
+            },
+            BATT_TEMP: { label: "BATT TEMP", type: "warning", pos: 1, title: "Superaquecimento da Bateria",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Chave BATT (Battery Switch) - OFF", info: "Isola a bateria da barra elétrica para interromper o carregamento e frear a fuga térmica (risco de explosão).", red: "O gerador (GEN) manterá a barra elétrica energizada normalmente." }
+                ],
+                secondary: [
+                    { text: "Monitorar a luz. Se não apagar: Pousar Rápido.", info: "Baterias de Níquel-Cádmio podem entrar em colapso térmico irreversível se o calor continuar subindo.", red: "Prepare-se para cortar o gerador (GEN OFF) se houver fumaça na cabine." }
+                ]
+            },
+            ENG_P: { label: "ENG P", type: "warning", pos: 3, title: "Baixa Pressão do Óleo do Motor",
+                instruments: { nr: 20, nf: 20, trq: -10, t4: 10 },
+                immediate: [
+                    { text: "Potência do Motor - REDUZIR", info: "Diminui a carga térmica e fricção nos mancais e engrenagens que estão trabalhando com pouca lubrificação.", red: "Entre em uma descida suave e utilize a velocidade de melhor razão de planeio (65 KIAS)." }
+                ],
+                secondary: [
+                    { text: "Se a pressão for zero: Pousar Imediatamente.", info: "O travamento das engrenagens do motor (Engine Failure) ocorrerá em pouquíssimo tempo.", red: "Prepare-se mentalmente para entrar em autorrotação a qualquer instante." }
+                ]
+            },
+            MGB_P: { label: "MGB P", type: "warning", pos: 4, title: "Baixa Pressão Óleo Transmissão (MGB)",
+                instruments: { nr: 20, nf: 20, trq: -10, t4: 0 },
+                immediate: [
+                    { text: "Potência - REDUZIR", info: "Alivia a tensão dos dentes da engrenagem principal (Coroa/Pinhão) da MGB.", red: "Abaixe o coletivo o suficiente para manter um voo nivelado com baixo torque." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "A falha da transmissão pode levar à interrupção total e catastrófica do rotor.", red: "Monitore a luz 'MGB TEMP'. Se ela acender junto com MGB P, pouse imediatamente (autorrotação recomendada)." }
+                ]
+            },
+            MGB_TEMP: { label: "MGB TEMP", type: "warning", pos: 5, title: "Alta Temperatura da MGB",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Velocidade - Ajustar para 65 KIAS", info: "Fornece um bom fluxo de ar para ajudar no resfriamento externo.", red: "Evite variações bruscas de potência." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "O excesso de calor indica falha de arrefecimento ou fricção severa interna.", red: "Prepare-se para autorrotação se sons estranhos ou vibrações começarem." }
+                ]
+            },
+            ENG_CHIP: { label: "ENG CHIP", type: "caution", pos: 6, title: "Limalha no Óleo do Motor",
+                instruments: { nr: 20, nf: 20, trq: 5, t4: 0 },
+                immediate: [
+                    { text: "Potência - REDUZIR", info: "O detector magnético captou fragmentos de metal. Reduzir a potência poupa os componentes internos danificados.", red: "Monitore atentamente T4 e Ng para sinais de degradação iminente." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "A quantidade de limalha pode entupir filtros ou indicar uma quebra de rolamento.", red: "Esteja pronto para perda súbita de potência." }
+                ]
+            },
+            MGB_CHIP: { label: "MGB CHIP", type: "caution", pos: 7, title: "Limalha no Óleo da MGB",
+                instruments: { nr: 20, nf: 20, trq: 5, t4: 0 },
+                immediate: [
+                    { text: "Potência - REDUZIR", info: "Limalha na transmissão indica que engrenagens estão desgastando anormalmente ou lascando.", red: "Mantenha atitude de voo estável." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "Degradação da caixa de transmissão.", red: "Evite manobras que exijam grandes demandas do rotor de cauda e principal." }
+                ]
+            },
+            HYD: { label: "HYD", type: "warning", pos: 8, title: "Falha Hidráulica",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Velocidade - Ajustar para 40 a 60 KIAS", info: "Forças aerodinâmicas de retrocesso nos comandos são drasticamente reduzidas nesta faixa de velocidade.", red: "Nesta janela de velocidade, a aeronave permanece totalmente controlável mesmo sem assistência." },
+                    { text: "Chave de Corte (HYD Cut-Off) - OFF", info: "Esvazia os acumuladores de pressão simultaneamente, prevenindo assimetria severa nos controles.", red: "Certifique-se de estabilizar a aeronave antes de acionar a chave." }
+                ],
+                secondary: [
+                    { text: "Pouso Corrido (Run-on Landing) a 10-15 nós.", info: "Efetuar pairado sem hidráulico exige esforço extremo e pode resultar em perda de controle próximo ao solo.", red: "Toque as asas de esqui paralelamente na pista plana e reduza gradualmente o coletivo." }
+                ]
+            },
+            F_FILT: { label: "F.FILT", type: "caution", pos: 9, title: "Pré-entupimento do Filtro de Combustível",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Potência - REDUZIR", info: "Diminui o fluxo de combustível demandado, evitando que a sucção crie bolhas ou bypass (se equipado).", red: "Monitore a luz FUEL P." }
+                ],
+                secondary: [
+                    { text: "Pousar assim que praticável.", info: "O combustível pode estar contaminado.", red: "Se a luz FUEL P também acender, siga o procedimento para falha de bomba." }
+                ]
+            },
+            DOORS: { label: "DOORS", type: "caution", pos: 10, title: "Porta(s) Destravada(s)",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Velocidade - REDUZIR (Abaixo de 90 KIAS)", info: "Uma porta aberta em alta velocidade altera a aerodinâmica e o vento pode arrancar a porta estruturalmente, atingindo o rotor.", red: "Em caso extremo, pouse em segurança para fechar e travar a porta no solo." }
+                ],
+                secondary: []
+            },
+            SERVO: { label: "SERVO", type: "warning", pos: 11, reqVersion: "B_BA_B2", title: "Falha de Circuito do Servo",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Reduzir severidade das manobras", info: "Indica perda em um dos circuitos do sistema servo-acionado duplo (quando aplicável à versão).", red: "Trate como uma potencial falha hidráulica maior se a carga no manche endurecer." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "O sistema perdeu sua redundância e a integridade de controle está comprometida.", red: "Evite voo pairado prolongado." }
+                ]
+            },
+            LIMIT: { label: "LIMIT", type: "caution", pos: 11, reqVersion: "B3_B3e", title: "Limite do Motor Excedido (FADEC)",
+                instruments: { nr: 20, nf: 20, trq: 45, t4: 45 },
+                immediate: [
+                    { text: "Potência - REDUZIR IMEDIATAMENTE", info: "O FADEC gravou uma excedência em Ng, Torque ou T4. Reduzir a potência traz os valores para a faixa verde contínua.", red: "Verifique o FLI (Vehicle Engine Multifunction Display - VEMD) para confirmar qual parâmetro está fora do arco." }
+                ],
+                secondary: [
+                    { text: "Continuar o voo e registrar os valores.", info: "Após o pouso, a equipe de manutenção precisará analisar o histórico no VEMD.", red: "Se houver ruído anormal, trate como falha iminente de motor." }
+                ]
+            },
+            FUEL_P: { label: "FUEL P", type: "caution", pos: 12, title: "Falha na Pressão de Combustível",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Bomba de Reforço (Booster Pump) - LIGAR", info: "A bomba mecânica principal do motor falhou. A bomba de reforço elétrica precisa assumir o envio contínuo.", red: "Verifique se o disjuntor da bomba (Fuel Pump C/B) não está desarmado." }
+                ],
+                secondary: [
+                    { text: "Evite manobras bruscas.", info: "Impede o desabastecimento (descorvamento) momentâneo da linha.", red: "Pouse assim que prático." }
+                ]
+            },
+            BATT: { label: "BATT", type: "caution", pos: 13, title: "Bateria Desconectada / Sem Carga",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Chave BATT - VERIFICAR ON", info: "A bateria não está conectada ao barramento, ou o contato falhou.", red: "Verifique a voltagem. Se o gerador estiver operando, a aeronave tem energia, mas sem reserva em caso de falha do GEN." }
+                ],
+                secondary: []
+            },
+            GENE: { label: "GENE", type: "caution", pos: 14, title: "Falha do Gerador",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Chave GEN - RESET", info: "Tenta limpar um pico de sobretensão (overvoltage) recolocando o gerador no circuito. Desligue (OFF), aguarde e ligue (ON).", red: "Desligue (OFF), aguarde de 2 a 3 segundos, e ligue (ON)." }
+                ],
+                secondary: [
+                    { text: "Equipamentos Não Essenciais - OFF", info: "Se o reset falhar, você só tem de 20 a 30 minutos de bateria. Desligar luzes e ar condicionado poupa carga vital.", red: "Mantenha apenas rádios primários e VEMD/Horizonte." }
+                ]
+            },
+            FUEL: { label: "FUEL", type: "caution", pos: 15, title: "Baixo Nível de Combustível",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Monitorar indicador de quantidade", info: "O nível de combustível atingiu a marcação de aviso reserva. Você possui, em média, 15 minutos de voo.", red: "Evite atitudes extremas (picadas ou cabradas) para evitar que a bomba puxe ar." }
+                ],
+                secondary: [
+                    { text: "Pousar dentro do tempo limite.", info: "Localize o heliponto ou área segura mais próxima.", red: "Não tente esticar o voo; pane seca em helicóptero exige autorrotação compulsória." }
+                ]
+            },
+            PITOT: { label: "PITOT", type: "caution", pos: 16, title: "Aquecimento do Pitot Falha",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Chave Pitot Heat - VERIFICAR ON", info: "O tubo de pitot não está aquecido. Em condições de umidade ou frio, o velocímetro pode travar devido ao gelo.", red: "Se a luz permanecer, assuma a falha do velocímetro (IAS) e voe por atitude." }
+                ],
+                secondary: []
+            },
+            HORN: { label: "HORN", type: "caution", pos: 17, reqVersion: "B_BA_B2", title: "Buzina Desligada ou Falha",
+                instruments: { nr: 20, nf: 20, trq: 10, t4: 0 },
+                immediate: [
+                    { text: "Verificar chave HORN no console", info: "Garante que o alerta sonoro vital (Gongo de Hidráulico ou Bipe contínuo de Baixo NR) funcionará em caso de pane real.", red: "No teste pré-voo, acione o botão HORN TEST e verifique." }
+                ],
+                secondary: []
+            },
+            GOV_RED: { label: "GOV", type: "warning", pos: 17, reqVersion: "B3_B3e", title: "Falha Maior do FADEC (Governador)",
+                instruments: { nr: 10, nf: 30, trq: 20, t4: 30 },
+                immediate: [
+                    { text: "Coletivo - AJUSTAR PARA MANTER NR", info: "O fluxo de combustível travou na vazão atual. O FADEC não regula mais a aceleração do motor.", red: "No B3e, o sistema EBCAU (backup) assumirá parcialmente. Evite movimentos muito bruscos." }
+                ],
+                secondary: [
+                    { text: "Pousar o Mais Rápido Possível.", info: "O controle do helicóptero é puramente dependente da sua antecipação com o manete (twist grip).", red: "Realize aproximações suaves." }
+                ]
+            },
+            // Emergência Fora do Painel
+            ENG_FAIL: { label: "ENG FAIL", type: "warning", pos: 99, title: "Falha Completa de Motor (Apagamento)",
+                instruments: { nr: 0, nf: -60, trq: -60, t4: -60 }, 
+                immediate: [
+                    { text: "Passo Coletivo - REDUZIR TOTALMENTE", info: "Sem o motor, a única forma de manter o rotor girando (NR) é forçando o ar a passar de baixo para cima pelas pás (Autorrotação).", red: "Use pedal direito (no Esquilo) para compensar a perda do torque rotacional." },
+                    { text: "Velocidade Cíclica - 65 KIAS", info: "Fornece a melhor razão de planeio (glide) para o AS350, dando mais tempo para encontrar um local de pouso.", red: "A 65 pés de altura do solo, inicie o flare puxando o cíclico para reduzir a velocidade." }
+                ],
+                secondary: []
+            }
+        };
+
+        let currentVersion = 'B_BA_B2';
+        let activeEmergency = null;
+
+        // --- SISTEMA DE MODAL ---
+        function openModal(title, text, isRedundancy) {
+            const modal = document.getElementById('info-modal');
+            const modalHeader = document.getElementById('modal-header');
+            const modalTitle = document.getElementById('modal-title');
+            const modalText = document.getElementById('modal-text');
+            
+            // Define a cor do cabeçalho com base no tipo
+            if(isRedundancy) {
+                modalHeader.className = "p-3 flex justify-between items-center text-white bg-slate-800";
+            } else {
+                modalHeader.className = "p-3 flex justify-between items-center text-white bg-blue-700";
+            }
+            
+            modalTitle.innerText = title;
+            modalText.innerHTML = text;
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('modal-content-box').classList.remove('scale-95');
+                document.getElementById('modal-content-box').classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeModal() {
+            document.getElementById('modal-content-box').classList.remove('scale-100');
+            document.getElementById('modal-content-box').classList.add('scale-95');
+            setTimeout(() => {
+                document.getElementById('info-modal').classList.add('hidden');
+            }, 200);
+        }
+
+        window.showActionModal = function(emKey, phase, idx, type, shortName) {
+            const step = emergencyData[emKey][phase][idx];
+            if(type === 'info') {
+                openModal(`[?] ${shortName}`, step.info, false);
+            } else {
+                openModal(`[R] REDUNDÂNCIA - ${shortName}`, step.red, true);
+            }
+        }
+
+        window.openGaugeModal = function(gaugeKey, type, shortName) {
+            const data = gaugeData[gaugeKey];
+            if(type === 'info') {
+                openModal(`[?] ${shortName}`, data.info, false);
+            } else {
+                openModal(`[R] REDUNDÂNCIA - ${shortName}`, data.red, true);
+            }
+        }
+
+        // --- LÓGICA DO PAINEL ---
+        function updateGauges(emergencyKey) {
+            const nrNeedle = document.getElementById('needle-nr');
+            const nfNeedle = document.getElementById('needle-nf');
+            const trqNeedle = document.getElementById('needle-trq');
+            const t4Needle = document.getElementById('needle-t4');
+
+            let nr = 20, nf = 20, trq = 10, t4 = 0; 
+
+            if(emergencyKey && emergencyData[emergencyKey] && emergencyData[emergencyKey].instruments) {
+                const instr = emergencyData[emergencyKey].instruments;
+                nr = instr.nr; nf = instr.nf; trq = instr.trq; t4 = instr.t4;
+            }
+
+            nrNeedle.style.transform = `rotate(${nr}deg)`;
+            nfNeedle.style.transform = `rotate(${nf}deg)`;
+            trqNeedle.style.transform = `rotate(${trq}deg)`;
+            t4Needle.style.transform = `rotate(${t4}deg)`;
+        }
+
+        function renderCWP() {
+            const grid = document.getElementById('cwp-grid');
+            grid.innerHTML = '';
+
+            for (let i = 0; i < 18; i++) {
+                const emEntry = Object.entries(emergencyData).find(([k, d]) => d.pos === i);
+                
+                if (emEntry) {
+                    const [key, data] = emEntry;
+                    if (data.reqVersion && data.reqVersion !== currentVersion) {
+                        createEmptySlot(grid);
+                        continue;
+                    }
+
+                    const isWarning = data.type === 'warning';
+                    const bgColor = isWarning ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-900';
+                    const isSelected = activeEmergency === key;
+                    
+                    const btn = document.createElement('button');
+                    btn.className = `cwp-btn ${bgColor} font-black text-[12px] sm:text-xs rounded 
+                                     flex items-center justify-center h-[42px] text-center uppercase tracking-tighter
+                                     ${isSelected ? 'selected-btn z-10' : ''}`;
+                    btn.innerText = data.label;
+                    btn.onclick = () => selectEmergency(key);
+                    grid.appendChild(btn);
+
+                } else {
+                    createEmptySlot(grid);
+                }
+            }
+        }
+
+        function createEmptySlot(parent) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'cwp-empty h-[42px]';
+            parent.appendChild(emptyDiv);
+        }
+
+        window.selectEmergency = function(key) {
+            activeEmergency = key;
+            renderCWP(); 
+            updateGauges(key); 
+
+            const data = emergencyData[key];
+            const content = document.getElementById('procedure-content');
+            const headerColor = data.type === 'warning' ? 'bg-red-600' : 'bg-amber-500';
+            const iconType = data.type === 'warning' ? 'ph-warning-octagon' : 'ph-warning';
+
+            // Geração da lista de Ações Imediatas (Dinâmica Visual AW119)
+            const immediateSteps = data.immediate ? data.immediate.map((step, idx) => {
+                const shortTitle = step.text.split('-')[0].trim().toUpperCase();
+                return `<li class="flex items-start gap-3 py-3 border-b border-slate-200 last:border-0">
+                    <span class="text-red-600 font-black text-lg mt-0.5 leading-none">▶</span>
+                    <div class="flex-1 text-slate-900 font-bold text-[15px] leading-snug">
+                        ${step.text}
+                    </div>
+                    <div class="flex gap-1.5 shrink-0 ml-2">
+                        <span class="icon-badge icon-info" onclick="showActionModal('${key}', 'immediate', ${idx}, 'info', '${shortTitle}')">?</span>
+                        <span class="icon-badge icon-red" onclick="showActionModal('${key}', 'immediate', ${idx}, 'red', '${shortTitle}')">R</span>
+                    </div>
+                </li>`;
+            }).join('') : '';
+
+            // Geração da lista de Ações Subsequentes (Dinâmica Visual AW119)
+            const secondarySteps = data.secondary ? data.secondary.map((step, idx) => {
+                const shortTitle = step.text.split('-')[0].split('.')[0].trim().toUpperCase();
+                return `<li class="flex items-start gap-3 py-3 border-b border-slate-200 last:border-0">
+                    <span class="text-slate-500 font-bold text-lg mt-0.5 leading-none">▶</span>
+                    <div class="flex-1 text-slate-700 font-bold text-[15px] leading-snug">
+                        ${step.text}
+                    </div>
+                    <div class="flex gap-1.5 shrink-0 ml-2">
+                        <span class="icon-badge icon-info" onclick="showActionModal('${key}', 'secondary', ${idx}, 'info', '${shortTitle}')">?</span>
+                        <span class="icon-badge icon-red" onclick="showActionModal('${key}', 'secondary', ${idx}, 'red', '${shortTitle}')">R</span>
+                    </div>
+                </li>`;
+            }).join('') : '';
+
+            content.innerHTML = `
+                <div class="${headerColor} p-4 flex items-center gap-3 text-white sticky top-0 z-10 shadow-md">
+                    <i class="ph ${iconType} text-3xl md:text-4xl"></i>
+                    <h2 class="text-lg md:text-xl font-black uppercase tracking-wide leading-tight">${data.title}</h2>
+                </div>
+
+                <div class="p-4 md:p-6 flex-1 overflow-y-auto">
+                    
+                    <!-- BLOCO DE AÇÕES IMEDIATAS -->
+                    <div class="mb-6 rounded-md overflow-hidden border border-slate-300 shadow-sm">
+                        <div class="bg-red-600 p-2.5 flex items-center gap-2 text-white">
+                            <i class="ph ph-lightning text-xl"></i>
+                            <h3 class="font-black text-[15px] tracking-wide m-0 uppercase">Ações Imediatas (Memória)</h3>
+                        </div>
+                        <ul class="px-4 bg-white">
+                            ${immediateSteps}
+                        </ul>
+                    </div>
+
+                    <!-- BLOCO DE AÇÕES SUBSEQUENTES -->
+                    ${secondarySteps.length > 0 ? `
+                    <div class="mb-6 rounded-md overflow-hidden border border-slate-300 shadow-sm">
+                        <div class="bg-slate-700 p-2.5 flex items-center gap-2 text-white">
+                            <i class="ph ph-list-checks text-xl"></i>
+                            <h3 class="font-black text-[15px] tracking-wide m-0 uppercase">Ações Subsequentes</h3>
+                        </div>
+                        <ul class="px-4 bg-white">
+                            ${secondarySteps}
+                        </ul>
+                    </div>` : ''}
+
+                </div>
+            `;
+        }
+
+        window.setVersion = function(v) {
+            currentVersion = v;
+            activeEmergency = null; 
+            updateGauges(null); 
+            
+            const btnB2 = document.getElementById('btn-v-b2');
+            const btnB3 = document.getElementById('btn-v-b3');
+            
+            if(v === 'B_BA_B2') {
+                btnB2.className = "px-4 py-2 text-sm font-bold rounded-md bg-blue-600 text-white transition-colors shadow-inner ring-2 ring-blue-300";
+                btnB3.className = "px-4 py-2 text-sm font-bold rounded-md text-slate-400 hover:text-white transition-colors";
+            } else {
+                btnB3.className = "px-4 py-2 text-sm font-bold rounded-md bg-blue-600 text-white transition-colors shadow-inner ring-2 ring-blue-300";
+                btnB2.className = "px-4 py-2 text-sm font-bold rounded-md text-slate-400 hover:text-white transition-colors";
+            }
+
+            document.getElementById('procedure-content').innerHTML = `
+                <div class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 bg-slate-50">
+                    <i class="ph ph-check-circle text-7xl mb-4 opacity-20 text-emerald-500"></i>
+                    <h3 class="text-xl font-bold mb-2">Painel de Alarmes (CWP) Atualizado</h3>
+                    <p>Você trocou a versão do Helicóptero. As posições das luzes foram reconfiguradas de acordo com o manual.</p>
+                </div>
+            `;
+            
+            renderCWP();
+        }
+
+        window.onload = () => {
+            renderCWP();
+            setTimeout(() => updateGauges(null), 500); 
+        };
+
+    </script>
+</body>
+</html>
